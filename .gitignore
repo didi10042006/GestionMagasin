@@ -1,3 +1,42 @@
-bin/
-obj/
-artifacts/
+# Visual Studio / MSBuild
+.vs/
+**/bin/
+**/obj/
+**/TestResults/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.cache
+
+# JetBrains and editor state
+.idea/
+.vscode/
+*.swp
+*.swn
+
+# Build, publish and installer outputs
+/artifacts/
+/publish/
+/InstallerOutput/
+*.pdb
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+*.secrets.json
+secrets.*.json
+
+# Local commercial databases and backups (never commit merchant data)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.bak
+Backups/
+
+# Temporary validation artifacts
+/_pypdf_temp/
+/_cahier_extract.tmp
