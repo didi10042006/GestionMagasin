@@ -114,8 +114,8 @@ public partial class Form1 : Form
             RowCount = 1,
             BackColor = CatalogPalette.Background
         };
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 72));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
         var actions = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -135,6 +135,13 @@ public partial class Form1 : Form
         refreshButton.Size = new Size(120, 38);
         refreshButton.Click += (_, _) => RefreshDashboard();
         actions.Controls.AddRange([catalogButton, salesButton, refreshButton]);
+        if (_user?.Role == UserRole.Administrateur)
+        {
+            var reportsButton = CatalogPalette.CreateButton("Rapports", CatalogPalette.Primary);
+            reportsButton.Size = new Size(120, 38);
+            reportsButton.Click += (_, _) => OpenReports();
+            actions.Controls.Add(reportsButton);
+        }
         toolbar.Controls.Add(actions, 0, 0);
 
         var status = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, BackColor = CatalogPalette.Background };
@@ -291,5 +298,12 @@ public partial class Form1 : Form
         using var sales = new SalesForm(_session, _user, todayOnly);
         sales.ShowDialog(this);
         RefreshDashboard();
+    }
+
+    private void OpenReports()
+    {
+        if (_user?.Role != UserRole.Administrateur) return;
+        using var reports = new ReportsForm(_session, _user);
+        reports.ShowDialog(this);
     }
 }
