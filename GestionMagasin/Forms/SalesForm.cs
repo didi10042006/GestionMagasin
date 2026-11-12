@@ -63,7 +63,7 @@ public sealed class SalesForm : Form
     private Guid? _validationToken;
     private int _checkoutInProgress;
 
-    public SalesForm(DatabaseSession session, AuthenticatedUser? user)
+    public SalesForm(DatabaseSession session, AuthenticatedUser? user, bool openTodayHistory = false)
     {
         _session = session;
         _user = user;
@@ -145,6 +145,19 @@ public sealed class SalesForm : Form
         _previewTicketButton.Click += (_, _) => PreviewSelectedTicket();
         _printTicketButton.Click += (_, _) => PrintSelectedTicket();
         _cancelSaleButton.Click += (_, _) => CancelSelectedSale();
+
+        if (user?.Role == UserRole.Vendeur)
+        {
+            _historySeller.SelectedValue = user.Id;
+            _historySeller.Enabled = false;
+        }
+        if (openTodayHistory)
+        {
+            _historyFrom.Value = DateTime.Today;
+            _historyThrough.Value = DateTime.Today;
+            _historyStatusFilter.SelectedValue = "Validee";
+            tabs.SelectedTab = historyTab;
+        }
 
         LoadProducts();
         LoadHistory();
@@ -545,7 +558,9 @@ public sealed class SalesForm : Form
         {
             var fromUtc = DateTime.SpecifyKind(_historyFrom.Value.Date, DateTimeKind.Local).ToUniversalTime();
             var throughUtc = DateTime.SpecifyKind(_historyThrough.Value.Date.AddDays(1), DateTimeKind.Local).ToUniversalTime();
-            var sellerValue = Convert.ToInt32(_historySeller.SelectedValue, CultureInfo.InvariantCulture);
+            var sellerValue = _user?.Role == UserRole.Vendeur
+                ? _user.Id
+                : Convert.ToInt32(_historySeller.SelectedValue, CultureInfo.InvariantCulture);
             var status = Convert.ToString(_historyStatusFilter.SelectedValue, CultureInfo.InvariantCulture) ?? "Tous";
             var entries = _sales.GetHistory(fromUtc, throughUtc, _historySearch.Text,
                 sellerValue == 0 ? null : sellerValue, status);

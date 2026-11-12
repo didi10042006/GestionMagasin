@@ -26,7 +26,9 @@ public sealed class ProductsCatalogForm : Form
     private readonly Button _archiveCategory = CatalogPalette.CreateButton("Archiver", Color.FromArgb(185, 63, 63));
     private readonly Label _productCount = new();
 
-    public ProductsCatalogForm(DatabaseSession session, AuthenticatedUser? user)
+    public ProductsCatalogForm(DatabaseSession session, AuthenticatedUser? user,
+        AvailabilityFilter initialAvailability = AvailabilityFilter.Tous,
+        RecordStateFilter initialState = RecordStateFilter.Tous)
     {
         _user = user;
         _canManage = user?.Role == UserRole.Administrateur;
@@ -66,6 +68,8 @@ public sealed class ProductsCatalogForm : Form
         Controls.Add(layout);
 
         LoadCategoriesIntoFilter();
+        _availabilityFilter.SelectedValue = (int)initialAvailability;
+        _productStateFilter.SelectedValue = (int)initialState;
         LoadProducts();
         LoadCategories();
         UpdateProductActions();
