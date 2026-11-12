@@ -41,6 +41,7 @@ public sealed class SalesForm : Form
     private readonly TextBox _productSearch = new();
     private readonly DataGridView _productGrid = new();
     private readonly DataGridView _cartGrid = new();
+    private readonly BindingSource _cartBindingSource = new();
     private readonly NumericUpDown _quantityInput = new();
     private readonly ComboBox _paymentMethod = new();
     private readonly NumericUpDown _amountPaid = new();
@@ -49,6 +50,7 @@ public sealed class SalesForm : Form
     private readonly Label _totalLabel = new();
     private readonly Label _changeLabel = new();
     private readonly Button _checkoutButton = CatalogPalette.CreateButton("Valider la vente", CatalogPalette.Primary);
+    private readonly Button _addToCartButton = CatalogPalette.CreateButton("Ajouter au panier", CatalogPalette.Primary);
     private readonly TextBox _historySearch = new();
     private readonly DateTimePicker _historyFrom = new();
     private readonly DateTimePicker _historyThrough = new();
@@ -231,7 +233,8 @@ public sealed class SalesForm : Form
             Name = "Remove", HeaderText = "", Text = "Retirer", UseColumnTextForButtonValue = true,
             Width = 72, SortMode = DataGridViewColumnSortMode.NotSortable
         });
-        _cartGrid.DataSource = _cart;
+        _cartBindingSource.DataSource = _cart;
+        _cartGrid.DataSource = _cartBindingSource;
         cartPanel.Controls.Add(_cartGrid, 0, 1);
 
         var addLine = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 6, 0, 0) };
@@ -239,11 +242,9 @@ public sealed class SalesForm : Form
         ConfigureQuantity(_quantityInput, 1);
         _quantityInput.Width = 92;
         addLine.Controls.Add(_quantityInput);
-        var addButton = CatalogPalette.CreateButton("Ajouter au panier", CatalogPalette.Primary);
-        addButton.Width = 180;
-        addButton.Click += (_, _) => AddSelectedProduct();
-        _productGrid.Tag = addButton;
-        addLine.Controls.Add(addButton);
+        _addToCartButton.Width = 180;
+        _addToCartButton.Click += AddToCartClicked;
+        addLine.Controls.Add(_addToCartButton);
         cartPanel.Controls.Add(addLine, 0, 2);
 
         var payment = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(0, 3, 0, 0) };
@@ -387,14 +388,24 @@ public sealed class SalesForm : Form
             .Select(item => new ProductChoice(item.Id, item.Code, item.Name, item.SalePrice, item.Stock, item.AlertThreshold))
             .ToList();
         _productGrid.DataSource = items;
+        var firstSellableRow = _productGrid.Rows.Cast<DataGridViewRow>()
+            .FirstOrDefault(row => row.DataBoundItem is ProductChoice { Stock: > 0 });
+        if (firstSellableRow is not null && _productGrid.CurrentRow is null && _productGrid.Columns.Count > 0)
+            _productGrid.CurrentCell = firstSellableRow.Cells[0];
         if (_productGrid.Columns[nameof(ProductChoice.Stock)] is { } stockColumn)
             stockColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
         UpdateAddAction();
     }
 
+    private void AddToCartClicked(object? sender, EventArgs e) => AddSelectedProduct();
+
     private void AddSelectedProduct()
     {
-        if (_productGrid.CurrentRow?.DataBoundItem is not ProductChoice product) return;
+        var product = _productGrid.CurrentRow?.DataBoundItem as ProductChoice
+            ?? _productGrid.SelectedRows.Cast<DataGridViewRow>()
+                .Select(row => row.DataBoundItem as ProductChoice)
+                .FirstOrDefault(choice => choice is not null);
+        if (product is null) return;
         var requested = decimal.ToInt32(_quantityInput.Value);
         if (product.Stock <= 0)
         {
@@ -458,6 +469,7 @@ public sealed class SalesForm : Form
 
     private void RefreshCart()
     {
+        _cartBindingSource.ResetBindings(metadataChanged: false);
         _cartGrid.Refresh();
         var total = _cart.Aggregate(0L, (sum, line) => checked(sum + line.SubtotalXaf));
         _totalLabel.Text = $"Total : {FormatMoney(total)} FCFA";
@@ -786,8 +798,8 @@ public sealed class SalesForm : Form
 
     private void UpdateAddAction()
     {
-        if (_productGrid.Tag is Button addButton)
-            addButton.Enabled = _user is not null && _productGrid.CurrentRow?.DataBoundItem is ProductChoice { Stock: > 0 };
+        var canEditCart = _user is not null || _session.Mode == DatabaseMode.Demonstration;
+        _addToCartButton.Enabled = canEditCart && _productGrid.CurrentRow?.DataBoundItem is ProductChoice { Stock: > 0 };
     }
 
     private static string BuildReceiptText(SaleReceipt receipt)
