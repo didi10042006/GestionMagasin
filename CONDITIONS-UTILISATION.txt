@@ -1,0 +1,68 @@
+CONDITIONS D'UTILISATION — GESTION-MAGASIN
+Version du document : 1.0 — 12 novembre 2026
+
+1. OBJET
+
+Gestion-Magasin est une application Windows destinée à la gestion d'un catalogue,
+des stocks, des ventes, de rapports et de comptes utilisateurs. Elle est fournie
+comme outil logiciel et ne remplace pas les conseils d'un professionnel du droit,
+de la comptabilité ou de la sécurité informatique.
+
+2. LICENCE DU LOGICIEL
+
+Le code de Gestion-Magasin est publié sous la licence MIT reproduite dans le
+fichier LICENSE. Cette licence autorise notamment l'utilisation, la copie, la
+modification et la redistribution du code sous réserve de conserver les avis
+de droit d'auteur et le texte de licence requis. Les composants tiers restent
+soumis à leurs propres licences, présentées dans THIRD-PARTY-NOTICES.md.
+
+Ces conditions décrivent les précautions d'utilisation du logiciel. Elles ne
+remplacent pas la licence MIT, les licences tierces ni les droits qui seraient
+accordés impérativement par la loi applicable.
+
+3. RESPONSABILITÉS DE L'UTILISATEUR
+
+L'utilisateur est responsable des informations saisies et doit vérifier les
+prix, quantités, ventes, rapports, exports et opérations avant de s'y fier ou
+de les transmettre. Il lui revient de configurer des comptes nominatifs, de
+protéger ses identifiants, de limiter l'accès à l'ordinateur et aux fichiers,
+et de respecter les règles applicables à son activité et aux données qu'il
+enregistre.
+
+Les fonctions de sauvegarde et de restauration ne dispensent pas de vérifier
+régulièrement que les copies peuvent être lues et conservées dans un lieu sûr.
+Une restauration remplace la base active. Avant de la confirmer, vérifiez le
+fichier choisi et conservez les copies utiles.
+
+4. CONSERVATION LOCALE DES DONNÉES
+
+L'application enregistre ses bases SQLite sur l'ordinateur Windows, dans le
+dossier local de l'utilisateur :
+
+  %LOCALAPPDATA%\GestionMagasin\gestion-magasin.db
+  %LOCALAPPDATA%\GestionMagasin\Demo\gestion-magasin-demo.db
+
+Les copies automatiques sont enregistrées dans un sous-dossier Backups auprès
+de chaque base. Les sauvegardes manuelles sont placées à l'emplacement choisi
+par l'administrateur. L'application ne chiffre pas ces fichiers de base ou de
+sauvegarde. Toute personne disposant d'un accès suffisant au poste ou aux
+fichiers peut potentiellement accéder à leur contenu ; protégez donc les
+sessions Windows, les supports et les copies exportées.
+
+La désinstallation ou la suppression du programme ne garantit pas la suppression
+des bases et sauvegardes conservées dans le profil Windows. L'administrateur doit
+gérer leur conservation, leur copie et leur suppression selon ses besoins.
+
+5. DISPONIBILITÉ ET LIMITES
+
+Le logiciel est fourni « en l'état », dans les limites prévues par la licence
+MIT et par le droit applicable. Aucune garantie de fonctionnement continu,
+d'absence d'erreurs, d'exhaustivité des rapports ou d'adéquation à un besoin
+particulier n'est promise. Les auteurs et contributeurs ne sont pas responsables
+des pertes ou dommages liés à l'utilisation du logiciel dans la mesure permise
+par la loi applicable. Rien dans ce document n'écarte une responsabilité ou un
+droit qui ne peut légalement être exclu ou limité.
+
+Avant une utilisation en production, l'exploitant doit évaluer le logiciel dans
+son environnement, établir ses propres procédures de vérification et de
+sauvegarde, et déterminer si les fonctions répondent à ses obligations.
