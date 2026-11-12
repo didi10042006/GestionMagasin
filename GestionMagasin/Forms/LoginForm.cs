@@ -9,9 +9,10 @@ public sealed class LoginForm : Form
     private readonly TextBox _password = new();
     private readonly Label _error = new();
 
-    public LoginForm(AuthenticationService authenticationService)
+    public LoginForm(AuthenticationService authenticationService, string? logoPath = null)
     {
         _authenticationService = authenticationService;
+        Icon = BrandingAssets.LoadApplicationIcon();
         Text = "Connexion — Gestion-Magasin";
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -26,10 +27,22 @@ public sealed class LoginForm : Form
         {
             Text = "Connexion à la base réelle",
             AutoSize = true,
-            Location = new Point(30, 27),
-            Font = new Font("Segoe UI", 17, FontStyle.Bold),
+            Location = new Point(104, 34),
+            Font = new Font("Segoe UI", 15, FontStyle.Bold),
             ForeColor = Color.FromArgb(28, 43, 66)
         });
+        var logo = BrandingAssets.LoadLogo(logoPath);
+        if (logo is not null)
+        {
+            Controls.Add(new PictureBox
+            {
+                Image = logo,
+                Location = new Point(32, 18),
+                Size = new Size(58, 58),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent
+            });
+        }
         AddField("Nom d'utilisateur", _username, 90, false);
         AddField("Mot de passe", _password, 155, true);
 

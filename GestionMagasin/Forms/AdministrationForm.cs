@@ -12,6 +12,7 @@ public sealed class AdministrationForm : Form
     private readonly DataGridView _userGrid = new();
     private readonly DataGridView _auditGrid = new();
     private readonly TextBox _storeName = new();
+    private readonly TextBox _logoPath = new() { ReadOnly = true };
     private readonly ComboBox _timeZone = new();
 
     public AdministrationForm(DatabaseSession session, AuthenticatedUser administrator)
@@ -86,9 +87,10 @@ public sealed class AdministrationForm : Form
 
     private Control BuildSettingsPage()
     {
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, RowCount = 5, Width = 700, Height = 300, BackColor = CatalogPalette.Background };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, RowCount = 6, Width = 760, Height = 360, BackColor = CatalogPalette.Background };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
@@ -101,12 +103,21 @@ public sealed class AdministrationForm : Form
         _timeZone.DisplayMember = nameof(TimeZoneInfo.Id);
         _timeZone.DataSource = TimeZoneInfo.GetSystemTimeZones().OrderBy(zone => zone.Id).ToList();
         AddSettingField(layout, 2, "Fuseau horaire", _timeZone);
+        var logoPicker = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        logoPicker.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        logoPicker.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 125));
+        _logoPath.Dock = DockStyle.Fill;
+        logoPicker.Controls.Add(_logoPath, 0, 0);
+        var chooseLogo = new Button { Text = "Choisir PNG", Dock = DockStyle.Fill };
+        chooseLogo.Click += (_, _) => ChooseLogo();
+        logoPicker.Controls.Add(chooseLogo, 1, 0);
+        AddSettingField(layout, 3, "Logo personnalisé", logoPicker);
         var save = CatalogPalette.CreateButton("Enregistrer les paramètres", CatalogPalette.Primary);
         save.Size = new Size(230, 40);
         save.Click += (_, _) => SaveSettings();
-        layout.Controls.Add(save, 1, 3);
-        var note = new Label { Text = "Les rapports et dates métier utilisent le fuseau horaire configuré pour le magasin.", Dock = DockStyle.Fill, ForeColor = Color.FromArgb(92, 103, 119), TextAlign = ContentAlignment.TopLeft };
-        layout.Controls.Add(note, 0, 4);
+        layout.Controls.Add(save, 1, 4);
+        var note = new Label { Text = "Les rapports et dates métier utilisent le fuseau horaire configuré. Si le fichier du logo personnalisé est absent, l’application reprend automatiquement le logo intégré.", Dock = DockStyle.Fill, ForeColor = Color.FromArgb(92, 103, 119), TextAlign = ContentAlignment.TopLeft };
+        layout.Controls.Add(note, 0, 5);
         layout.SetColumnSpan(note, 2);
         return layout;
     }
@@ -122,7 +133,10 @@ public sealed class AdministrationForm : Form
         var backup = CatalogPalette.CreateButton("Créer une sauvegarde", CatalogPalette.Primary);
         backup.Size = new Size(180, 36);
         backup.Click += (_, _) => CreateBackup();
-        actions.Controls.AddRange([refresh, backup]);
+        var restore = CatalogPalette.CreateButton("Restaurer une sauvegarde", Color.FromArgb(185, 63, 63));
+        restore.Size = new Size(190, 36);
+        restore.Click += (_, _) => RestoreBackup();
+        actions.Controls.AddRange([refresh, backup, restore]);
         layout.Controls.Add(actions, 0, 0);
         ConfigureGrid(_auditGrid);
         _auditGrid.AutoGenerateColumns = true;
@@ -175,6 +189,7 @@ public sealed class AdministrationForm : Form
         {
             var settings = _settings.GetStoreSettings();
             _storeName.Text = settings.StoreName;
+            _logoPath.Text = settings.LogoPath ?? "";
             _timeZone.SelectedItem = TimeZoneInfo.GetSystemTimeZones().FirstOrDefault(zone => zone.Id == settings.TimeZoneId);
         }
         catch (Exception ex) { ShowError(ex); }
@@ -185,11 +200,17 @@ public sealed class AdministrationForm : Form
         try
         {
             if (_timeZone.SelectedItem is not TimeZoneInfo zone) throw new InvalidOperationException("Sélectionnez un fuseau horaire valide.");
-            _settings.SaveStoreSettings(_administrator, _storeName.Text, "FCFA XAF", zone.Id);
+            _settings.SaveStoreSettings(_administrator, _storeName.Text, "FCFA XAF", zone.Id, _logoPath.Text);
             MessageBox.Show(this, "Les paramètres du magasin ont été enregistrés.", "Administration", MessageBoxButtons.OK, MessageBoxIcon.Information);
             LoadAudit();
         }
         catch (Exception ex) { ShowError(ex); }
+    }
+
+    private void ChooseLogo()
+    {
+        using var dialog = new OpenFileDialog { Filter = "Images PNG (*.png)|*.png|Tous les fichiers (*.*)|*.*", CheckFileExists = true };
+        if (dialog.ShowDialog(this) == DialogResult.OK) _logoPath.Text = dialog.FileName;
     }
 
     private void LoadAudit()
@@ -220,6 +241,31 @@ public sealed class AdministrationForm : Form
             var path = _settings.CreateBackup(_administrator, dialog.FileName);
             MessageBox.Show(this, $"Sauvegarde créée : {path}", "Administration", MessageBoxButtons.OK, MessageBoxIcon.Information);
             LoadAudit();
+        }
+        catch (Exception ex) { ShowError(ex); }
+    }
+
+    private void RestoreBackup()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Filter = "Sauvegardes SQLite (*.db;*.sqlite)|*.db;*.sqlite|Tous les fichiers (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        var confirmation = MessageBox.Show(this,
+            "La base active sera remplacée. Une copie de sécurité de son état actuel sera créée avant la restauration. L’application redémarrera après validation. Continuer ?",
+            "Confirmer la restauration", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+        if (confirmation != DialogResult.Yes) return;
+        try
+        {
+            var result = _settings.RestoreBackup(_administrator, dialog.FileName);
+            MessageBox.Show(this,
+                $"Restauration vérifiée (schéma {result.SchemaVersion}). Copie de sécurité conservée :\n{result.SafetyBackupPath}\n\nL’application va redémarrer.",
+                "Restauration terminée", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Application.Restart();
+            Application.Exit();
         }
         catch (Exception ex) { ShowError(ex); }
     }

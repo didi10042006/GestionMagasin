@@ -36,6 +36,7 @@ public sealed class SalesForm : Form
     private readonly AuthenticatedUser? _user;
     private readonly SalesService _sales;
     private readonly ProductService _products;
+    private readonly string? _logoPath;
     private readonly BindingList<CartLineView> _cart = [];
     private readonly TextBox _productSearch = new();
     private readonly DataGridView _productGrid = new();
@@ -70,6 +71,7 @@ public sealed class SalesForm : Form
         var factory = new SqliteConnectionFactory(session.DatabasePath);
         _sales = new SalesService(factory);
         _products = new ProductService(factory);
+        _logoPath = new AdministrationService(factory).GetStoreSettings().LogoPath;
 
         Text = "Ventes et caisse";
         StartPosition = FormStartPosition.CenterParent;
@@ -621,7 +623,7 @@ public sealed class SalesForm : Form
         if (detail is null) return;
         try
         {
-            using var document = CreateTicketDocument(detail);
+            using var document = CreateTicketDocument(detail, _logoPath);
             using var preview = new PrintPreviewDialog
             {
                 Document = document,
@@ -642,7 +644,7 @@ public sealed class SalesForm : Form
         if (detail is null) return;
         try
         {
-            using var document = CreateTicketDocument(detail);
+            using var document = CreateTicketDocument(detail, _logoPath);
             using var dialog = new PrintDialog { Document = document, UseEXDialog = true };
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             document.Print();
@@ -659,7 +661,7 @@ public sealed class SalesForm : Form
         return _sales.GetById(row.Id);
     }
 
-    private static PrintDocument CreateTicketDocument(SaleDetail detail)
+    private static PrintDocument CreateTicketDocument(SaleDetail detail, string? logoPath)
     {
         var document = new PrintDocument
         {
@@ -679,6 +681,7 @@ public sealed class SalesForm : Form
             using var titleBrush = new SolidBrush(Color.FromArgb(31, 41, 55));
             using var textBrush = new SolidBrush(Color.Black);
             using var mutedBrush = new SolidBrush(Color.FromArgb(90, 90, 90));
+            using var logo = BrandingAssets.LoadLogo(logoPath);
             var left = e.MarginBounds.Left;
             var width = e.MarginBounds.Width;
             var y = (float)e.MarginBounds.Top;
@@ -686,8 +689,17 @@ public sealed class SalesForm : Form
 
             if (lineIndex == 0)
             {
-                graphics.DrawString("Gestion-Magasin", titleFont, titleBrush, left, y);
-                y += 32;
+                if (logo is not null)
+                {
+                    graphics.DrawImage(logo, left, y, 42, 42);
+                    graphics.DrawString("Gestion-Magasin", titleFont, titleBrush, left + 52, y + 7);
+                    y += 47;
+                }
+                else
+                {
+                    graphics.DrawString("Gestion-Magasin", titleFont, titleBrush, left, y);
+                    y += 32;
+                }
                 graphics.DrawString("TICKET DE VENTE", boldFont, textBrush, left, y);
                 y += 18;
                 graphics.DrawString($"N° {detail.Sale.Number}", regularFont, textBrush, left, y);

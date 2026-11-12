@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#10274e"/><stop offset="1" stop-color="#2563eb"/></linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="88" fill="url(#brand)"/>
+  <path d="M104 198h304v238H104z" fill="#fff"/>
+  <path d="M132 222h248v49H132z" fill="#192f57"/>
+  <text x="256" y="255" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="#fff">GESTION MAGASIN</text>
+  <path d="M137 293h120v112H137z" fill="#dbeafe" stroke="#a0b8d6" stroke-width="4"/>
+  <path d="M197 293v112M137 349h120" stroke="#a0b8d6" stroke-width="4"/>
+  <path d="M290 293h82v143h-82z" fill="#2563eb"/>
+  <circle cx="359" cy="360" r="5" fill="#f59e0b"/>
+  <path d="M93 166h326v37H93z" fill="#fff"/>
+  <path d="M139 166h46v37h-46zm92 0h46v37h-46zm92 0h46v37h-46z" fill="#2563eb"/>
+  <path d="M93 201h326v11H93z" fill="#192f57"/>
+</svg>

@@ -106,13 +106,25 @@ static class Program
             else
             {
                 var authService = new AuthenticationService(connectionFactory, passwordHasher);
-                using var loginForm = new LoginForm(authService);
+                var customLogoPath = new AdministrationService(connectionFactory).GetStoreSettings().LogoPath;
+                using var loginForm = new LoginForm(authService, customLogoPath);
                 if (loginForm.ShowDialog() != DialogResult.OK)
                 {
                     return;
                 }
                 currentUser = loginForm.AuthenticatedUser;
             }
+        }
+        try
+        {
+            var settings = new AdministrationService(connectionFactory).GetStoreSettings();
+            var businessDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, settings.TimeZone).DateTime);
+            _ = new BackupService(connectionFactory).CreateAutomaticDailyBackup(businessDate);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"La sauvegarde automatique du jour n'a pas pu être créée : {ex.Message}",
+                "Sauvegarde", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         Application.Run(new Form1(new DatabaseSession(selectedMode, selectedPath), currentUser));
     }

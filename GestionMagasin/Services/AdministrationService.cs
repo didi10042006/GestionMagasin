@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace GestionMagasin.Services;
 
-public sealed record StoreSettings(string StoreName, string Currency, string TimeZoneId)
+public sealed record StoreSettings(string StoreName, string Currency, string TimeZoneId, string? LogoPath)
 {
     public TimeZoneInfo TimeZone => TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId);
 }
@@ -15,7 +15,7 @@ public sealed class AdministrationService(SqliteConnectionFactory connectionFact
         using var connection = connectionFactory.OpenConnection();
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Cle, Valeur FROM Parametre WHERE Cle IN ('StoreName', 'Currency', 'TimeZoneId');";
+        command.CommandText = "SELECT Cle, Valeur FROM Parametre WHERE Cle IN ('StoreName', 'Currency', 'TimeZoneId', 'LogoPath');";
         using (var reader = command.ExecuteReader())
             while (reader.Read()) values[reader.GetString(0)] = reader.GetString(1);
         var zone = values.GetValueOrDefault("TimeZoneId", TimeZoneInfo.Local.Id);
@@ -23,10 +23,10 @@ public sealed class AdministrationService(SqliteConnectionFactory connectionFact
         catch (TimeZoneNotFoundException) { zone = TimeZoneInfo.Local.Id; }
         catch (InvalidTimeZoneException) { zone = TimeZoneInfo.Local.Id; }
         return new StoreSettings(values.GetValueOrDefault("StoreName", "Gestion-Magasin"),
-            values.GetValueOrDefault("Currency", "FCFA XAF"), zone);
+            values.GetValueOrDefault("Currency", "FCFA XAF"), zone, values.GetValueOrDefault("LogoPath"));
     }
 
-    public void SaveStoreSettings(AuthenticatedUser? actor, string storeName, string currency, string timeZoneId)
+    public void SaveStoreSettings(AuthenticatedUser? actor, string storeName, string currency, string timeZoneId, string? logoPath = null)
     {
         AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         storeName = storeName?.Trim() ?? string.Empty;
@@ -36,40 +36,27 @@ public sealed class AdministrationService(SqliteConnectionFactory connectionFact
             throw new ArgumentException("La devise de cette application est fixée à FCFA XAF.");
         if (string.IsNullOrWhiteSpace(timeZoneId)) throw new ArgumentException("Le fuseau horaire est obligatoire.");
         _ = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        if (!string.IsNullOrWhiteSpace(logoPath)) logoPath = Path.GetFullPath(logoPath.Trim());
+        else logoPath = string.Empty;
 
         using var connection = connectionFactory.OpenConnection();
         using var transaction = connection.BeginTransaction();
         SaveParameter(connection, transaction, "StoreName", storeName);
         SaveParameter(connection, transaction, "Currency", currency);
         SaveParameter(connection, transaction, "TimeZoneId", timeZoneId);
+        SaveParameter(connection, transaction, "LogoPath", logoPath);
         AuditWriter.Record(connection, transaction, actor!.Id, "ModificationParametresMagasin", "Parametre", null,
-            $"Paramètres du magasin modifiés : nom={storeName}; devise={currency}; fuseau={timeZoneId}.");
+            $"Paramètres du magasin modifiés : nom={storeName}; devise={currency}; fuseau={timeZoneId}; logo personnalisé={(string.IsNullOrEmpty(logoPath) ? "non" : "oui")}.");
         transaction.Commit();
     }
 
     public string CreateBackup(AuthenticatedUser? actor, string destinationPath)
     {
-        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
-        if (string.IsNullOrWhiteSpace(destinationPath)) throw new ArgumentException("Le chemin de sauvegarde est obligatoire.");
-        var fullPath = Path.GetFullPath(destinationPath);
-        if (string.Equals(fullPath, connectionFactory.DatabasePath, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Le fichier de sauvegarde doit être distinct de la base active.");
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        using (var source = connectionFactory.OpenConnection())
-        using (var destination = new SqliteConnection(new SqliteConnectionStringBuilder
-               { DataSource = fullPath, Mode = SqliteOpenMode.ReadWriteCreate, ForeignKeys = true }.ToString()))
-        {
-            destination.Open();
-            source.BackupDatabase(destination);
-        }
-
-        using var connection = connectionFactory.OpenConnection();
-        using var transaction = connection.BeginTransaction();
-        AuditWriter.Record(connection, transaction, actor!.Id, "SauvegardeBase", "BaseDeDonnees", null,
-            $"Sauvegarde SQLite créée : {Path.GetFileName(fullPath)}.");
-        transaction.Commit();
-        return fullPath;
+        return new BackupService(connectionFactory).CreateManualBackup(actor, destinationPath);
     }
+
+    public BackupRestoreResult RestoreBackup(AuthenticatedUser? actor, string sourcePath) =>
+        new BackupService(connectionFactory).RestoreBackup(actor, sourcePath);
 
     private static void SaveParameter(SqliteConnection connection, SqliteTransaction transaction, string key, string value)
     {
