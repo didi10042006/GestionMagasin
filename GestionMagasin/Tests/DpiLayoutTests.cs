@@ -7,6 +7,25 @@ namespace GestionMagasin.Tests;
 public sealed class DpiLayoutTests
 {
     [Theory]
+    [InlineData(150, 4, 650, 300, 350)]
+    [InlineData(600, 4, 650, 300, 350)]
+    [InlineData(1320, 4, 650, 300, 350)]
+    [InlineData(200, 4, 300, 130, 120)]
+    public void SplitterDistanceAndPanelMinimumsFitAvailableControlSize(
+        int dimension, int splitterWidth, int preferredDistance, int requestedPanel1Minimum, int requestedPanel2Minimum)
+    {
+        var layout = SplitContainerLayout.Calculate(dimension, splitterWidth, preferredDistance,
+            requestedPanel1Minimum, requestedPanel2Minimum);
+        var available = Math.Max(0, dimension - splitterWidth);
+
+        Assert.True(layout.Panel1Minimum + layout.Panel2Minimum <= available);
+        Assert.InRange(layout.SplitterDistance, layout.Panel1Minimum,
+            available - layout.Panel2Minimum);
+        Assert.True(layout.Panel1Minimum <= requestedPanel1Minimum);
+        Assert.True(layout.Panel2Minimum <= requestedPanel2Minimum);
+    }
+
+    [Theory]
     [InlineData(100)]
     [InlineData(125)]
     [InlineData(150)]

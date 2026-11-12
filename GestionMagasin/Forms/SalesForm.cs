@@ -192,11 +192,10 @@ public sealed class SalesForm : Form
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
-            SplitterDistance = 650,
-            Panel1MinSize = 300,
-            Panel2MinSize = 350,
             BackColor = CatalogPalette.Background
         };
+        SplitContainerLayout.ConfigureWhenSized(split, preferredDistance: 650,
+            requestedPanel1Minimum: 300, requestedPanel2Minimum: 350);
 
         var productPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(0, 0, 10, 0) };
         productPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
@@ -332,7 +331,9 @@ public sealed class SalesForm : Form
         filters.Controls.Add(FilterGroup("Statut", _historyStatusFilter, 155));
         root.Controls.Add(filters, 0, 0);
 
-        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 300, Panel1MinSize = 130, Panel2MinSize = 120 };
+        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal };
+        SplitContainerLayout.ConfigureWhenSized(split, preferredDistance: 300,
+            requestedPanel1Minimum: 130, requestedPanel2Minimum: 120);
         ConfigureGrid(_historyGrid);
         AddGridColumn(_historyGrid, "N° vente", nameof(SaleHistoryRow.Numero), 240);
         AddGridColumn(_historyGrid, "Date", nameof(SaleHistoryRow.Date), 155);
