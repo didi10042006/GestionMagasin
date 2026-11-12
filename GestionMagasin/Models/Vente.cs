@@ -10,5 +10,6 @@ public sealed class Vente
     public int MontantPayeXaf { get; set; }
     public int MonnaieRendueXaf { get; set; }
     public string ModePaiement { get; set; } = "Espèces";
+    public string? DescriptionPaiement { get; set; }
     public string Statut { get; set; } = "Validee";
 }

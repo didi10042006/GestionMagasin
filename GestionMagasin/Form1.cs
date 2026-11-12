@@ -58,9 +58,18 @@ public partial class Form1 : Form
         };
         welcome.Controls.AddRange([title, modeLabel]);
 
+        var salesButton = CatalogPalette.CreateButton("Ouvrir les ventes", CatalogPalette.Primary);
+        salesButton.Size = new Size(196, 42);
+        salesButton.Enabled = user is not null || session.Mode == DatabaseMode.Demonstration;
+        salesButton.Click += (_, _) =>
+        {
+            using var sales = new SalesForm(session, user);
+            sales.ShowDialog(this);
+        };
+
         var card = new Panel
         {
-            Size = new Size(420, 210),
+            Size = new Size(460, 270),
             BackColor = Color.White,
             Padding = new Padding(24),
             Location = new Point(0, 14)
@@ -76,14 +85,15 @@ public partial class Form1 : Form
         var cardText = new Label
         {
             AutoSize = false,
-            Size = new Size(360, 62),
+            Size = new Size(400, 74),
             Font = new Font("Segoe UI", 10),
             ForeColor = Color.FromArgb(92, 103, 119),
             Location = new Point(26, 66),
-            Text = "Consultez les articles, filtrez par catégorie et disponibilité, et gérez les références du magasin."
+            Text = "Gérez le catalogue, recherchez des articles, encaissez les ventes et consultez leur historique."
         };
-        catalogButton.Location = new Point(26, 142);
-        card.Controls.AddRange(new Control[] { cardTitle, cardText, catalogButton });
+        catalogButton.Location = new Point(26, 150);
+        salesButton.Location = new Point(26, 204);
+        card.Controls.AddRange(new Control[] { cardTitle, cardText, catalogButton, salesButton });
         page.Controls.Add(welcome, 0, 0);
         page.Controls.Add(card, 0, 1);
         Controls.Add(page);
