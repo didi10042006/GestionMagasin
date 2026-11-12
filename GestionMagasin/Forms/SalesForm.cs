@@ -19,7 +19,7 @@ public sealed class SalesForm : Form
         public required int ProductId { get; init; }
         public required string Code { get; init; }
         public required string Name { get; init; }
-        public required int UnitPriceXaf { get; init; }
+        public required int UnitPriceXaf { get; set; }
         public int Quantity { get; set; }
         public long SubtotalXaf => (long)UnitPriceXaf * Quantity;
         public string UnitPrice => FormatMoney(UnitPriceXaf);
@@ -54,6 +54,8 @@ public sealed class SalesForm : Form
     private readonly Button _cancelSaleButton = CatalogPalette.CreateButton("Annuler la vente", Color.FromArgb(185, 28, 28));
     private readonly Label _historyStatus = new();
     private int _cartQuantityBeforeEdit;
+    private Guid? _validationToken;
+    private int _checkoutInProgress;
 
     public SalesForm(DatabaseSession session, AuthenticatedUser? user)
     {
@@ -99,7 +101,11 @@ public sealed class SalesForm : Form
         _productSearch.TextChanged += (_, _) => LoadProducts();
         _productGrid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) AddSelectedProduct(); };
         _productGrid.SelectionChanged += (_, _) => UpdateAddAction();
-        _cart.ListChanged += (_, _) => RefreshCart();
+        _cart.ListChanged += (_, _) =>
+        {
+            _validationToken = null;
+            RefreshCart();
+        };
         _cartGrid.CellBeginEdit += (_, e) =>
         {
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && _cartGrid.Columns[e.ColumnIndex].DataPropertyName == nameof(CartLineView.Quantity))
@@ -108,10 +114,21 @@ public sealed class SalesForm : Form
         _cartGrid.DataError += (_, e) => e.ThrowException = false;
         _cartGrid.CellEndEdit += (_, e) => UpdateCartQuantity(e.RowIndex);
         _cartGrid.CellContentClick += (_, e) => RemoveCartLine(e.RowIndex, e.ColumnIndex);
-        _paymentMethod.SelectedIndexChanged += (_, _) => UpdatePaymentSummary();
-        _paymentMethod.SelectedIndexChanged += (_, _) => ApplyPaymentMethodDefaults();
-        _amountPaid.ValueChanged += (_, _) => UpdatePaymentSummary();
-        _paymentDescription.TextChanged += (_, _) => UpdatePaymentSummary();
+        _paymentMethod.SelectedIndexChanged += (_, _) =>
+        {
+            _validationToken = null;
+            ApplyPaymentMethodDefaults();
+        };
+        _amountPaid.ValueChanged += (_, _) =>
+        {
+            _validationToken = null;
+            UpdatePaymentSummary();
+        };
+        _paymentDescription.TextChanged += (_, _) =>
+        {
+            _validationToken = null;
+            UpdatePaymentSummary();
+        };
         _checkoutButton.Click += (_, _) => Checkout();
         _historySearch.TextChanged += (_, _) => LoadHistory();
         _historyFrom.ValueChanged += (_, _) => LoadHistory();
@@ -360,6 +377,7 @@ public sealed class SalesForm : Form
             }
             _cart.Add(new CartLineView { ProductId = product.Id, Code = product.Code, Name = product.Name, UnitPriceXaf = product.UnitPriceXaf, Quantity = requested });
         }
+        _validationToken = null;
         RefreshCart();
     }
 
@@ -383,6 +401,7 @@ public sealed class SalesForm : Form
             return;
         }
         line.Quantity = quantity;
+        _validationToken = null;
         RefreshCart();
     }
 
@@ -451,21 +470,43 @@ public sealed class SalesForm : Form
     private void Checkout()
     {
         if (_user is null || _cart.Count == 0 || _paymentMethod.SelectedItem is not SalePaymentMethod method) return;
+        if (Interlocked.Exchange(ref _checkoutInProgress, 1) != 0) return;
+        _checkoutButton.Enabled = false;
         try
         {
-            var receipt = _sales.Checkout(_user, _cart.Select(line => new CartLineRequest(line.ProductId, line.Quantity)).ToList(),
-                method, decimal.ToInt32(_amountPaid.Value), string.IsNullOrWhiteSpace(_paymentDescription.Text) ? null : _paymentDescription.Text.Trim());
+            _validationToken ??= Guid.NewGuid();
+            var requests = _cart.Select(line => new CartLineRequest(line.ProductId, line.Quantity, line.UnitPriceXaf)).ToList();
+            var receipt = _sales.Checkout(_user, requests, method, decimal.ToInt32(_amountPaid.Value),
+                _validationToken.Value, string.IsNullOrWhiteSpace(_paymentDescription.Text) ? null : _paymentDescription.Text.Trim());
             var message = BuildReceiptText(receipt);
             _cart.Clear();
+            _validationToken = null;
             _amountPaid.Value = 0;
             LoadProducts();
             LoadHistory();
             MessageBox.Show(this, message, "Vente validée", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or UnauthorizedAccessException or OverflowException)
+        catch (SalePriceChangedException ex)
+        {
+            var prices = ex.RefreshedLines.ToDictionary(line => line.ProductId, line => line.UnitPriceXaf);
+            foreach (var line in _cart)
+                if (prices.TryGetValue(line.ProductId, out var refreshedPrice)) line.UnitPriceXaf = refreshedPrice;
+            _validationToken = null;
+            RefreshCart();
+            LoadProducts();
+            MessageBox.Show(this,
+                $"Un prix du catalogue a changé. Le panier affiche maintenant les prix à jour. Nouveau total : {FormatMoney(ex.RefreshedTotalXaf)} FCFA. Vérifiez-le puis cliquez à nouveau sur « Valider la vente ».",
+                "Prix actualisés — nouvelle validation requise", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Vente impossible", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             LoadProducts();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _checkoutInProgress, 0);
+            UpdatePaymentSummary();
         }
     }
 

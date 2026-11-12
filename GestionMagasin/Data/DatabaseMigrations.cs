@@ -8,7 +8,13 @@ internal static class DatabaseMigrations
         new DatabaseMigration(2, "Rôle Vendeur et compatibilité des comptes existants", VendorRoleSchema, true),
         new DatabaseMigration(3, "Interdire la vente des produits archivés ou sans prix positif", SellableProductTriggers),
         new DatabaseMigration(4, "Journal signé des mouvements et solde de stock non négatif", StockLedgerSchema),
-        new DatabaseMigration(5, "Description des paiements Mobile Money et carte", "ALTER TABLE Vente ADD COLUMN DescriptionPaiement TEXT;")
+        new DatabaseMigration(5, "Description des paiements Mobile Money et carte", "ALTER TABLE Vente ADD COLUMN DescriptionPaiement TEXT;"),
+        new DatabaseMigration(6, "Jeton d'idempotence pour la validation des ventes", """
+            ALTER TABLE Vente ADD COLUMN JetonValidation TEXT;
+            ALTER TABLE Vente ADD COLUMN EmpreinteValidation TEXT;
+            CREATE UNIQUE INDEX UX_Vente_JetonValidation ON Vente(JetonValidation)
+                WHERE JetonValidation IS NOT NULL;
+            """)
     ];
 
     private const string InitialSchema = """

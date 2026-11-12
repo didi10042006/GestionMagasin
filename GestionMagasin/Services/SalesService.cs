@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using GestionMagasin.Data;
 using GestionMagasin.Models;
 using Microsoft.Data.Sqlite;
@@ -12,7 +15,23 @@ public enum SalePaymentMethod
     Carte
 }
 
-public sealed record CartLineRequest(int ProductId, int Quantity);
+public sealed record CartLineRequest(int ProductId, int Quantity, int ExpectedUnitPriceXaf);
+
+public sealed class InsufficientStockException(string productCode, string productName, int available, int requested)
+    : InvalidOperationException($"Stock insuffisant pour {productName} ({productCode}) : {available} disponible(s), {requested} demandé(s).")
+{
+    public string ProductCode { get; } = productCode;
+    public string ProductName { get; } = productName;
+    public int Available { get; } = available;
+    public int Requested { get; } = requested;
+}
+
+public sealed class SalePriceChangedException(IReadOnlyList<SaleLineSnapshot> refreshedLines, int refreshedTotalXaf)
+    : InvalidOperationException("Le prix d'un ou plusieurs produits a changé. Le panier a été actualisé; vérifiez le nouveau total et validez à nouveau.")
+{
+    public IReadOnlyList<SaleLineSnapshot> RefreshedLines { get; } = refreshedLines;
+    public int RefreshedTotalXaf { get; } = refreshedTotalXaf;
+}
 
 public sealed record SaleLineSnapshot(
     int ProductId,
@@ -60,41 +79,74 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
     private const int MaximumQuantity = 1_000_000;
 
     public SaleReceipt Checkout(AuthenticatedUser? actor, IEnumerable<CartLineRequest> cart,
-        SalePaymentMethod paymentMethod, int amountPaidXaf, string? paymentDescription = null)
+        SalePaymentMethod paymentMethod, int amountPaidXaf, Guid validationToken, string? paymentDescription = null)
     {
         AuthenticationService.RequireRole(actor, UserRole.Administrateur, UserRole.Vendeur);
         ArgumentNullException.ThrowIfNull(cart);
         if (!Enum.IsDefined(paymentMethod)) throw new ArgumentOutOfRangeException(nameof(paymentMethod));
+        if (validationToken == Guid.Empty) throw new ArgumentException("Le jeton de validation est obligatoire.", nameof(validationToken));
         if (amountPaidXaf < 0) throw new ArgumentOutOfRangeException(nameof(amountPaidXaf), "Le montant payé ne peut pas être négatif.");
         paymentDescription = NormalizePaymentDescription(paymentMethod, paymentDescription);
 
-        var quantities = new Dictionary<int, int>();
+        var linesByProduct = new Dictionary<int, CartLineRequest>();
         foreach (var line in cart)
         {
             if (line.ProductId <= 0) throw new ArgumentException("Le panier contient un produit invalide.", nameof(cart));
             if (line.Quantity <= 0) throw new ArgumentException("Chaque quantité du panier doit être strictement positive.", nameof(cart));
-            quantities[line.ProductId] = checked(quantities.GetValueOrDefault(line.ProductId) + line.Quantity);
-            if (quantities[line.ProductId] > MaximumQuantity)
+            if (line.ExpectedUnitPriceXaf <= 0) throw new ArgumentException("Le prix attendu du panier doit être strictement positif.", nameof(cart));
+            if (linesByProduct.TryGetValue(line.ProductId, out var existing))
+            {
+                if (existing.ExpectedUnitPriceXaf != line.ExpectedUnitPriceXaf)
+                    throw new ArgumentException("Un même produit ne peut pas avoir plusieurs prix attendus dans un panier.", nameof(cart));
+                linesByProduct[line.ProductId] = existing with { Quantity = checked(existing.Quantity + line.Quantity) };
+            }
+            else
+            {
+                linesByProduct.Add(line.ProductId, line);
+            }
+            if (linesByProduct[line.ProductId].Quantity > MaximumQuantity)
                 throw new ArgumentException("La quantité demandée dépasse la limite autorisée.", nameof(cart));
         }
-        if (quantities.Count == 0) throw new InvalidOperationException("Le panier est vide.");
+        if (linesByProduct.Count == 0) throw new InvalidOperationException("Le panier est vide.");
+
+        var orderedRequests = linesByProduct.Values.OrderBy(line => line.ProductId).ToArray();
+        var requestFingerprint = ComputeRequestFingerprint(actor!.Id, orderedRequests, paymentMethod, amountPaidXaf, paymentDescription);
+        var validationTokenText = validationToken.ToString("N");
 
         using var connection = connectionFactory.OpenConnection();
         using var transaction = connection.BeginTransaction();
-        EnsureActiveUser(connection, transaction, actor!.Id);
+        EnsureActiveUser(connection, transaction, actor.Id);
 
-        var snapshots = new List<SaleLineSnapshot>(quantities.Count);
-        long totalLong = 0;
-        foreach (var (productId, quantity) in quantities.OrderBy(pair => pair.Key))
+        var existingSale = FindSaleByValidationToken(connection, transaction, validationTokenText);
+        if (existingSale is not null)
         {
-            var product = GetSellableProduct(connection, transaction, productId);
-            if (product.Stock < quantity)
-                throw new InvalidOperationException($"Stock insuffisant pour {product.Name} ({product.Code}) : {product.Stock} disponible(s), {quantity} demandé(s).");
-            var subtotal = checked(product.UnitPriceXaf * quantity);
+            if (existingSale.Value.UserId != actor.Id)
+                throw new UnauthorizedAccessException("Ce jeton de validation appartient à un autre utilisateur.");
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Convert.FromHexString(existingSale.Value.Fingerprint), Convert.FromHexString(requestFingerprint)))
+                throw new InvalidOperationException("Ce jeton de validation a déjà été utilisé pour un autre contenu de vente.");
+            transaction.Commit();
+            var previous = GetById(existingSale.Value.SaleId)
+                ?? throw new InvalidOperationException("La vente déjà validée par ce jeton est introuvable.");
+            return ToReceipt(previous, paymentMethod);
+        }
+
+        var snapshots = new List<SaleLineSnapshot>(orderedRequests.Length);
+        long totalLong = 0;
+        var hasPriceChange = false;
+        foreach (var line in orderedRequests)
+        {
+            var product = GetSellableProduct(connection, transaction, line.ProductId);
+            if (product.Stock < line.Quantity)
+                throw new InsufficientStockException(product.Code, product.Name, product.Stock, line.Quantity);
+            if (product.UnitPriceXaf != line.ExpectedUnitPriceXaf) hasPriceChange = true;
+            var subtotal = checked(product.UnitPriceXaf * line.Quantity);
             totalLong = checked(totalLong + subtotal);
             if (totalLong > int.MaxValue) throw new InvalidOperationException("Le total dépasse le montant maximal accepté en FCFA.");
-            snapshots.Add(new SaleLineSnapshot(productId, product.Code, product.Name, quantity, product.UnitPriceXaf, subtotal));
+            snapshots.Add(new SaleLineSnapshot(line.ProductId, product.Code, product.Name, line.Quantity, product.UnitPriceXaf, subtotal));
         }
+
+        if (hasPriceChange) throw new SalePriceChangedException(snapshots, (int)totalLong);
 
         var total = (int)totalLong;
         if (total <= 0) throw new InvalidOperationException("Le total de la vente doit être strictement positif.");
@@ -110,8 +162,10 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
             sale.Transaction = transaction;
             sale.CommandText = """
                 INSERT INTO Vente (Numero, UtilisateurId, DateVenteUtc, MontantTotalXaf, MontantPayeXaf,
-                                   MonnaieRendueXaf, ModePaiement, DescriptionPaiement, Statut)
-                VALUES ($number, $userId, $soldAt, $total, $paid, $change, $paymentMethod, $paymentDescription, 'Validee');
+                                   MonnaieRendueXaf, ModePaiement, DescriptionPaiement, JetonValidation,
+                                   EmpreinteValidation, Statut)
+                VALUES ($number, $userId, $soldAt, $total, $paid, $change, $paymentMethod,
+                        $paymentDescription, $validationToken, $requestFingerprint, 'Validee');
                 SELECT last_insert_rowid();
                 """;
             sale.Parameters.AddWithValue("$number", number);
@@ -122,6 +176,8 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
             sale.Parameters.AddWithValue("$change", change);
             sale.Parameters.AddWithValue("$paymentMethod", PaymentMethodLabel(paymentMethod));
             sale.Parameters.AddWithValue("$paymentDescription", paymentDescription is null ? DBNull.Value : paymentDescription);
+            sale.Parameters.AddWithValue("$validationToken", validationTokenText);
+            sale.Parameters.AddWithValue("$requestFingerprint", requestFingerprint);
             saleId = Convert.ToInt32(sale.ExecuteScalar(), CultureInfo.InvariantCulture);
         }
 
@@ -320,6 +376,45 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
         if (Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 1)
             throw new UnauthorizedAccessException("Le compte utilisateur est désactivé.");
     }
+
+    private static (int SaleId, int UserId, string Fingerprint)? FindSaleByValidationToken(
+        SqliteConnection connection, SqliteTransaction transaction, string validationToken)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT Id, UtilisateurId, EmpreinteValidation FROM Vente WHERE JetonValidation = $token;";
+        command.Parameters.AddWithValue("$token", validationToken);
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? (reader.GetInt32(0), reader.GetInt32(1), reader.GetString(2))
+            : null;
+    }
+
+    private static string ComputeRequestFingerprint(int userId, IReadOnlyList<CartLineRequest> lines,
+        SalePaymentMethod paymentMethod, int amountPaidXaf, string? paymentDescription)
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            UserId = userId,
+            Lines = lines.Select(line => new { line.ProductId, line.Quantity, line.ExpectedUnitPriceXaf }).ToArray(),
+            PaymentMethod = (int)paymentMethod,
+            AmountPaidXaf = amountPaidXaf,
+            PaymentDescription = paymentDescription
+        });
+        return Convert.ToHexString(SHA256.HashData(payload));
+    }
+
+    private static SaleReceipt ToReceipt(SaleDetail detail, SalePaymentMethod method) => new(
+        detail.Sale.Id,
+        detail.Sale.Number,
+        detail.Sale.SoldAtUtc,
+        detail.Sale.CashierName,
+        detail.Sale.TotalXaf,
+        detail.Sale.AmountPaidXaf,
+        detail.Sale.ChangeXaf,
+        method,
+        detail.Sale.PaymentDescription,
+        detail.Lines);
 
     private static List<SaleHistoryEntry> ReadHistory(SqliteCommand command)
     {

@@ -11,5 +11,7 @@ public sealed class Vente
     public int MonnaieRendueXaf { get; set; }
     public string ModePaiement { get; set; } = "Espèces";
     public string? DescriptionPaiement { get; set; }
+    public string? JetonValidation { get; set; }
+    public string? EmpreinteValidation { get; set; }
     public string Statut { get; set; } = "Validee";
 }
