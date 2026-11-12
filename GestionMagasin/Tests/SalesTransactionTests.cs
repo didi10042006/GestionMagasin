@@ -174,6 +174,63 @@ public sealed class SalesTransactionTests : IDisposable
         Assert.Equal(1, CountSaleLines(receipt.Id));
     }
 
+    [Fact(DisplayName = "T09 - annulation admin à motif obligatoire, vente conservée, compensation unique")]
+    public void T09_CancellationIsAdminOnlyKeepsOriginalAndCannotBeRepeated()
+    {
+        var productId = CreateProduct("T09-RIZ", 2000, 10);
+        var receipt = _sales.Checkout(_admin, [new CartLineRequest(productId, 3, 2000)],
+            SalePaymentMethod.Especes, 6000, Guid.NewGuid());
+        var seller = new AuthenticatedUser(0, "vendeur-test", "Vendeur test", UserRole.Vendeur);
+
+        Assert.Throws<UnauthorizedAccessException>(() => _sales.Cancel(seller, receipt.Id, "Erreur caisse"));
+        Assert.Throws<ArgumentException>(() => _sales.Cancel(_admin, receipt.Id, "   "));
+        Assert.Equal(7, _stock.GetAvailableQuantity(productId));
+
+        _sales.Cancel(_admin, receipt.Id, "Erreur de caisse confirmée");
+
+        var original = Assert.IsType<SaleDetail>(_sales.GetById(receipt.Id));
+        Assert.Equal("Annulee", original.Sale.Status);
+        Assert.Single(original.Lines);
+        Assert.Equal("Erreur de caisse confirmée", original.Sale.CancellationReason);
+        Assert.Equal(10, _stock.GetAvailableQuantity(productId));
+        Assert.Equal(-3, _stock.GetHistory(productId).Single(item => item.TypeMouvement == "SortieVente").Quantite);
+        Assert.Equal(3, _stock.GetHistory(productId).Single(item => item.TypeMouvement == "AnnulationVente").Quantite);
+        Assert.Equal(1, ExecuteScalar("SELECT COUNT(*) FROM Vente;"));
+        Assert.Equal(1, ExecuteScalar("SELECT COUNT(*) FROM LigneVente WHERE VenteId = " + receipt.Id + ";"));
+        Assert.Equal(1, ExecuteScalar("SELECT COUNT(*) FROM AnnulationVente WHERE VenteId = " + receipt.Id + ";"));
+        Assert.Equal(1, ExecuteScalar("SELECT COUNT(*) FROM JournalAudit WHERE Entite = 'Vente' AND EntiteId = " + receipt.Id + " AND Action = 'AnnulationVente';"));
+
+        var secondAttempt = Assert.Throws<InvalidOperationException>(() => _sales.Cancel(_admin, receipt.Id, "Seconde tentative"));
+        Assert.Contains("déjà été annulée", secondAttempt.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(10, _stock.GetAvailableQuantity(productId));
+        Assert.Equal(1, ExecuteScalar("SELECT COUNT(*) FROM AnnulationVente WHERE VenteId = " + receipt.Id + ";"));
+        Assert.Equal(1, _stock.GetHistory(productId).Count(item => item.TypeMouvement == "AnnulationVente"));
+    }
+
+    [Fact(DisplayName = "L'historique filtre par numéro, vendeur, statut et période")]
+    public void HistoryFiltersByNumberSellerStatusAndPeriod()
+    {
+        var productId = CreateProduct("HIST-RIZ", 2000, 10);
+        var hasher = new PasswordHashingService();
+        new UserService(_factory, hasher).CreateUser(_admin, "sales-vendor", "Vendeur historique",
+            Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)) + "B1!", UserRole.Vendeur);
+        var sellerId = ExecuteScalar("SELECT Id FROM Utilisateur WHERE NomUtilisateur = 'sales-vendor';");
+        var seller = new AuthenticatedUser(sellerId, "sales-vendor", "Vendeur historique", UserRole.Vendeur);
+
+        var adminSale = _sales.Checkout(_admin, [new CartLineRequest(productId, 1, 2000)], SalePaymentMethod.Especes, 2000, Guid.NewGuid());
+        var sellerSale = _sales.Checkout(seller, [new CartLineRequest(productId, 1, 2000)], SalePaymentMethod.Especes, 2000, Guid.NewGuid());
+        _sales.Cancel(_admin, adminSale.Id, "Test filtre statut");
+        var from = DateTime.UtcNow.AddDays(-1);
+        var through = DateTime.UtcNow.AddDays(1);
+
+        var cancelledAdminSale = Assert.Single(_sales.GetHistory(from, through, adminSale.Number, _admin.Id, "Annulee"));
+        var validatedSellerSale = Assert.Single(_sales.GetHistory(from, through, sellerSale.Number, sellerId, "Validee"));
+
+        Assert.Equal(adminSale.Id, cancelledAdminSale.Id);
+        Assert.Equal(sellerSale.Id, validatedSellerSale.Id);
+        Assert.Empty(_sales.GetHistory(from, through, sellerSale.Number, _admin.Id, "Validee"));
+    }
+
     private int CreateProduct(string code, int price, int quantity)
     {
         _products.Create(_admin, code, code, null, _categoryId, 0, price, 3);

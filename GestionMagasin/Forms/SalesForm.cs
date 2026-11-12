@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Drawing.Printing;
 using System.Globalization;
 using System.Text;
 using GestionMagasin.Data;
@@ -28,6 +29,8 @@ public sealed class SalesForm : Form
 
     private sealed record SaleHistoryRow(int Id, string Numero, DateTime Date, string Caissier,
         int TotalXaf, string Total, string Paiement, string Statut, string MotifAnnulation);
+    private sealed record SellerFilter(int Id, string Name);
+    private sealed record StatusFilter(string Value, string Label);
 
     private readonly DatabaseSession _session;
     private readonly AuthenticatedUser? _user;
@@ -48,9 +51,12 @@ public sealed class SalesForm : Form
     private readonly TextBox _historySearch = new();
     private readonly DateTimePicker _historyFrom = new();
     private readonly DateTimePicker _historyThrough = new();
-    private readonly CheckBox _includeCancelled = new();
+    private readonly ComboBox _historySeller = new();
+    private readonly ComboBox _historyStatusFilter = new();
     private readonly DataGridView _historyGrid = new();
     private readonly TextBox _saleDetails = new();
+    private readonly Button _previewTicketButton = CatalogPalette.CreateButton("Aperçu ticket", CatalogPalette.Primary);
+    private readonly Button _printTicketButton = CatalogPalette.CreateButton("Imprimer ticket", CatalogPalette.Primary);
     private readonly Button _cancelSaleButton = CatalogPalette.CreateButton("Annuler la vente", Color.FromArgb(185, 28, 28));
     private readonly Label _historyStatus = new();
     private int _cartQuantityBeforeEdit;
@@ -133,8 +139,11 @@ public sealed class SalesForm : Form
         _historySearch.TextChanged += (_, _) => LoadHistory();
         _historyFrom.ValueChanged += (_, _) => LoadHistory();
         _historyThrough.ValueChanged += (_, _) => LoadHistory();
-        _includeCancelled.CheckedChanged += (_, _) => LoadHistory();
+        _historySeller.SelectedValueChanged += (_, _) => LoadHistory();
+        _historyStatusFilter.SelectedValueChanged += (_, _) => LoadHistory();
         _historyGrid.SelectionChanged += (_, _) => ShowSelectedSale();
+        _previewTicketButton.Click += (_, _) => PreviewSelectedTicket();
+        _printTicketButton.Click += (_, _) => PrintSelectedTicket();
         _cancelSaleButton.Click += (_, _) => CancelSelectedSale();
 
         LoadProducts();
@@ -281,19 +290,31 @@ public sealed class SalesForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         var filters = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 6, 0, 2) };
-        ConfigureSearch(_historySearch, "N° vente ou caissier");
-        _historySearch.Width = 230;
+        ConfigureSearch(_historySearch, "Rechercher un numéro de vente");
+        _historySearch.Width = 210;
         filters.Controls.Add(FilterGroup("Recherche", _historySearch, 240));
         _historyFrom.Format = DateTimePickerFormat.Short;
         _historyFrom.Value = DateTime.Today.AddDays(-30);
         filters.Controls.Add(FilterGroup("Depuis", _historyFrom, 140));
         _historyThrough.Format = DateTimePickerFormat.Short;
         filters.Controls.Add(FilterGroup("Jusqu'au", _historyThrough, 140));
-        _includeCancelled.Text = "Inclure les ventes annulées";
-        _includeCancelled.Checked = true;
-        _includeCancelled.AutoSize = true;
-        _includeCancelled.Margin = new Padding(12, 27, 0, 0);
-        filters.Controls.Add(_includeCancelled);
+        ConfigureFilterCombo(_historySeller);
+        var sellerChoices = new List<SellerFilter> { new(0, "Tous les vendeurs") };
+        sellerChoices.AddRange(_sales.GetSellers().Select(seller => new SellerFilter(seller.Id, seller.Name)));
+        _historySeller.DataSource = sellerChoices;
+        _historySeller.DisplayMember = nameof(SellerFilter.Name);
+        _historySeller.ValueMember = nameof(SellerFilter.Id);
+        filters.Controls.Add(FilterGroup("Vendeur", _historySeller, 205));
+        ConfigureFilterCombo(_historyStatusFilter);
+        _historyStatusFilter.DataSource = new List<StatusFilter>
+        {
+            new("Tous", "Tous les statuts"),
+            new("Validee", "Validées"),
+            new("Annulee", "Annulées")
+        };
+        _historyStatusFilter.DisplayMember = nameof(StatusFilter.Label);
+        _historyStatusFilter.ValueMember = nameof(StatusFilter.Value);
+        filters.Controls.Add(FilterGroup("Statut", _historyStatusFilter, 155));
         root.Controls.Add(filters, 0, 0);
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 300, Panel1MinSize = 130, Panel2MinSize = 120 };
@@ -319,13 +340,20 @@ public sealed class SalesForm : Form
         _saleDetails.BackColor = Color.White;
         _saleDetails.Dock = DockStyle.Fill;
         detailPanel.Controls.Add(_saleDetails, 0, 1);
-        var actionPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(10, 0, 0, 0) };
+        var actionPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(10, 0, 0, 0) };
         actionPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        actionPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        actionPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        actionPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        _previewTicketButton.Dock = DockStyle.Fill;
+        _previewTicketButton.Enabled = false;
+        actionPanel.Controls.Add(_previewTicketButton, 0, 0);
+        _printTicketButton.Dock = DockStyle.Fill;
+        _printTicketButton.Enabled = false;
+        actionPanel.Controls.Add(_printTicketButton, 0, 1);
         _cancelSaleButton.Dock = DockStyle.Top;
         _cancelSaleButton.Enabled = false;
         _cancelSaleButton.Visible = _user?.Role == UserRole.Administrateur && _session.Mode == DatabaseMode.Reelle;
-        actionPanel.Controls.Add(_cancelSaleButton, 0, 0);
+        actionPanel.Controls.Add(_cancelSaleButton, 0, 2);
         detailPanel.Controls.Add(actionPanel, 1, 0);
         detailPanel.SetRowSpan(actionPanel, 2);
         split.Panel2.Controls.Add(detailPanel);
@@ -512,12 +540,15 @@ public sealed class SalesForm : Form
 
     private void LoadHistory()
     {
-        if (!IsHandleCreated) return;
+        if (!IsHandleCreated || _historySeller.SelectedValue is null || _historyStatusFilter.SelectedValue is null) return;
         try
         {
             var fromUtc = DateTime.SpecifyKind(_historyFrom.Value.Date, DateTimeKind.Local).ToUniversalTime();
             var throughUtc = DateTime.SpecifyKind(_historyThrough.Value.Date.AddDays(1), DateTimeKind.Local).ToUniversalTime();
-            var entries = _sales.GetHistory(fromUtc, throughUtc, _historySearch.Text, _includeCancelled.Checked);
+            var sellerValue = Convert.ToInt32(_historySeller.SelectedValue, CultureInfo.InvariantCulture);
+            var status = Convert.ToString(_historyStatusFilter.SelectedValue, CultureInfo.InvariantCulture) ?? "Tous";
+            var entries = _sales.GetHistory(fromUtc, throughUtc, _historySearch.Text,
+                sellerValue == 0 ? null : sellerValue, status);
             _historyGrid.DataSource = entries.Select(sale => new SaleHistoryRow(sale.Id, sale.Number, sale.SoldAtUtc.ToLocalTime(),
                 sale.CashierName, sale.TotalXaf, FormatMoney(sale.TotalXaf), sale.PaymentMethod,
                 sale.Status == "Annulee" ? "Annulée" : "Validée", sale.CancellationReason ?? string.Empty)).ToList();
@@ -535,6 +566,8 @@ public sealed class SalesForm : Form
         if (_historyGrid.CurrentRow?.DataBoundItem is not SaleHistoryRow row)
         {
             _saleDetails.Clear();
+            _previewTicketButton.Enabled = false;
+            _printTicketButton.Enabled = false;
             _cancelSaleButton.Enabled = false;
             return;
         }
@@ -562,8 +595,148 @@ public sealed class SalesForm : Form
             text.AppendLine($"Annulée par : {detail.Sale.CancelledBy} le {detail.Sale.CancelledAtUtc?.ToLocalTime():dd/MM/yyyy HH:mm:ss}");
         }
         _saleDetails.Text = text.ToString();
+        _previewTicketButton.Enabled = true;
+        _printTicketButton.Enabled = true;
         _cancelSaleButton.Enabled = _cancelSaleButton.Visible && detail.Sale.Status == "Validee";
     }
+
+    private void PreviewSelectedTicket()
+    {
+        var detail = GetSelectedSaleDetail();
+        if (detail is null) return;
+        try
+        {
+            using var document = CreateTicketDocument(detail);
+            using var preview = new PrintPreviewDialog
+            {
+                Document = document,
+                WindowState = FormWindowState.Maximized,
+                Text = $"Aperçu du ticket — {detail.Sale.Number}"
+            };
+            preview.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            ShowPrintFailure(ex);
+        }
+    }
+
+    private void PrintSelectedTicket()
+    {
+        var detail = GetSelectedSaleDetail();
+        if (detail is null) return;
+        try
+        {
+            using var document = CreateTicketDocument(detail);
+            using var dialog = new PrintDialog { Document = document, UseEXDialog = true };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            document.Print();
+        }
+        catch (Exception ex)
+        {
+            ShowPrintFailure(ex);
+        }
+    }
+
+    private SaleDetail? GetSelectedSaleDetail()
+    {
+        if (_historyGrid.CurrentRow?.DataBoundItem is not SaleHistoryRow row) return null;
+        return _sales.GetById(row.Id);
+    }
+
+    private static PrintDocument CreateTicketDocument(SaleDetail detail)
+    {
+        var document = new PrintDocument
+        {
+            DocumentName = $"Ticket {detail.Sale.Number}",
+            OriginAtMargins = true
+        };
+        document.DefaultPageSettings.Margins = new Margins(45, 45, 40, 45);
+        var lineIndex = 0;
+        document.BeginPrint += (_, _) => lineIndex = 0;
+        document.PrintPage += (_, e) =>
+        {
+            var graphics = e.Graphics;
+            if (graphics is null) throw new InvalidOperationException("Le pilote d'impression n'a pas fourni de surface graphique.");
+            using var titleFont = new Font("Segoe UI", 15, FontStyle.Bold);
+            using var boldFont = new Font("Segoe UI", 9, FontStyle.Bold);
+            using var regularFont = new Font("Segoe UI", 9);
+            using var titleBrush = new SolidBrush(Color.FromArgb(31, 41, 55));
+            using var textBrush = new SolidBrush(Color.Black);
+            using var mutedBrush = new SolidBrush(Color.FromArgb(90, 90, 90));
+            var left = e.MarginBounds.Left;
+            var width = e.MarginBounds.Width;
+            var y = (float)e.MarginBounds.Top;
+            var bottom = (float)e.MarginBounds.Bottom;
+
+            if (lineIndex == 0)
+            {
+                graphics.DrawString("Gestion-Magasin", titleFont, titleBrush, left, y);
+                y += 32;
+                graphics.DrawString("TICKET DE VENTE", boldFont, textBrush, left, y);
+                y += 18;
+                graphics.DrawString($"N° {detail.Sale.Number}", regularFont, textBrush, left, y);
+                y += 17;
+                graphics.DrawString($"Date : {detail.Sale.SoldAtUtc.ToLocalTime():dd/MM/yyyy HH:mm:ss}", regularFont, textBrush, left, y);
+                y += 17;
+                graphics.DrawString($"Vendeur : {detail.Sale.CashierName}", regularFont, textBrush, left, y);
+                y += 17;
+                graphics.DrawString($"Paiement : {detail.Sale.PaymentMethod}", regularFont, textBrush, left, y);
+                y += 17;
+                if (detail.Sale.PaymentDescription is not null)
+                {
+                    graphics.DrawString($"Détail : {detail.Sale.PaymentDescription}", regularFont, textBrush,
+                        new RectangleF(left, y, width, 40));
+                    y += 34;
+                }
+                graphics.DrawLine(Pens.DimGray, left, y, left + width, y);
+                y += 9;
+            }
+            else
+            {
+                graphics.DrawString($"Ticket {detail.Sale.Number} (suite)", boldFont, textBrush, left, y);
+                y += 22;
+            }
+
+            while (lineIndex < detail.Lines.Count)
+            {
+                var line = detail.Lines[lineIndex];
+                var itemText = $"{line.ProductName} ({line.ProductCode}) — {line.Quantity} × {FormatMoney(line.UnitPriceXaf)} = {FormatMoney(line.SubtotalXaf)} FCFA";
+                var measured = graphics.MeasureString(itemText, regularFont, width);
+                if (y + measured.Height + 4 > bottom)
+                {
+                    e.HasMorePages = true;
+                    return;
+                }
+                graphics.DrawString(itemText, regularFont, textBrush, new RectangleF(left, y, width, measured.Height + 2));
+                y += measured.Height + 4;
+                lineIndex++;
+            }
+
+            var footerHeight = 90f;
+            if (y + footerHeight > bottom)
+            {
+                e.HasMorePages = true;
+                return;
+            }
+            y += 8;
+            graphics.DrawLine(Pens.DimGray, left, y, left + width, y);
+            y += 10;
+            graphics.DrawString($"TOTAL : {FormatMoney(detail.Sale.TotalXaf)} FCFA", boldFont, textBrush, left, y);
+            y += 18;
+            graphics.DrawString($"Payé : {FormatMoney(detail.Sale.AmountPaidXaf)} FCFA", regularFont, textBrush, left, y);
+            y += 17;
+            graphics.DrawString($"Monnaie rendue : {FormatMoney(detail.Sale.ChangeXaf)} FCFA", regularFont, textBrush, left, y);
+            y += 22;
+            graphics.DrawString(detail.Sale.Status == "Annulee" ? "VENTE ANNULÉE" : "Merci de votre visite", boldFont, mutedBrush, left, y);
+            e.HasMorePages = false;
+        };
+        return document;
+    }
+
+    private void ShowPrintFailure(Exception exception) => MessageBox.Show(this,
+        $"L'aperçu ou l'impression a échoué : {exception.Message}\n\nLa vente reste enregistrée. Vous pouvez réessayer depuis le détail de la vente.",
+        "Impression indisponible", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
     private void CancelSelectedSale()
     {
@@ -622,6 +795,14 @@ public sealed class SalesForm : Form
         input.PlaceholderText = placeholder;
         input.BorderStyle = BorderStyle.FixedSingle;
         input.Font = new Font("Segoe UI", 10);
+    }
+
+    private static void ConfigureFilterCombo(ComboBox combo)
+    {
+        combo.Dock = DockStyle.Fill;
+        combo.DropDownStyle = ComboBoxStyle.DropDownList;
+        combo.Font = new Font("Segoe UI", 9.5f);
+        combo.FlatStyle = FlatStyle.Flat;
     }
 
     private static void ConfigureQuantity(NumericUpDown input, int initial)

@@ -69,6 +69,7 @@ public sealed record SaleHistoryEntry(
     DateTime? CancelledAtUtc);
 
 public sealed record SaleDetail(SaleHistoryEntry Sale, IReadOnlyList<SaleLineSnapshot> Lines);
+public sealed record SaleSeller(int Id, string Name);
 
 /// <summary>
 /// Owns checkout and cancellation transactions. Sale lines snapshot their unit price;
@@ -253,10 +254,13 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
     }
 
     public IReadOnlyList<SaleHistoryEntry> GetHistory(DateTime? fromUtc = null, DateTime? throughUtc = null,
-        string? search = null, bool includeCancelled = true)
+        string? search = null, int? sellerId = null, string status = "Tous")
     {
         if (fromUtc is not null && throughUtc is not null && fromUtc > throughUtc)
             throw new ArgumentException("La date de début doit précéder la date de fin.");
+        if (sellerId is <= 0) throw new ArgumentOutOfRangeException(nameof(sellerId));
+        if (status is not ("Tous" or "Validee" or "Annulee"))
+            throw new ArgumentException("Le statut de recherche est invalide.", nameof(status));
 
         using var connection = connectionFactory.OpenConnection();
         using var command = connection.CreateCommand();
@@ -269,8 +273,9 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
             LEFT JOIN Utilisateur ua ON ua.Id = a.UtilisateurId
             WHERE ($fromUtc IS NULL OR v.DateVenteUtc >= $fromUtc)
               AND ($throughUtc IS NULL OR v.DateVenteUtc < $throughUtc)
-              AND ($search = '' OR v.Numero LIKE $pattern ESCAPE '\' OR u.NomComplet LIKE $pattern ESCAPE '\')
-              AND ($includeCancelled = 1 OR v.Statut <> 'Annulee')
+              AND ($search = '' OR v.Numero LIKE $pattern ESCAPE '\')
+              AND ($sellerId = 0 OR v.UtilisateurId = $sellerId)
+              AND ($status = 'Tous' OR v.Statut = $status)
             ORDER BY v.DateVenteUtc DESC, v.Id DESC;
             """;
         command.Parameters.AddWithValue("$fromUtc", fromUtc?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ?? (object)DBNull.Value);
@@ -278,8 +283,25 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
         var normalizedSearch = search?.Trim() ?? string.Empty;
         command.Parameters.AddWithValue("$search", normalizedSearch);
         command.Parameters.AddWithValue("$pattern", $"%{EscapeLike(normalizedSearch)}%");
-        command.Parameters.AddWithValue("$includeCancelled", includeCancelled ? 1 : 0);
+        command.Parameters.AddWithValue("$sellerId", sellerId ?? 0);
+        command.Parameters.AddWithValue("$status", status);
         return ReadHistory(command);
+    }
+
+    public IReadOnlyList<SaleSeller> GetSellers()
+    {
+        using var connection = connectionFactory.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, NomComplet
+            FROM Utilisateur
+            WHERE Role IN ('Administrateur', 'Vendeur')
+            ORDER BY NomComplet COLLATE NOCASE;
+            """;
+        var sellers = new List<SaleSeller>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read()) sellers.Add(new SaleSeller(reader.GetInt32(0), reader.GetString(1)));
+        return sellers;
     }
 
     public SaleDetail? GetById(int saleId)
