@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/GestionMagasin/" />
+  <Folder Name="/GestionMagasin/Tests/">
+    <Project Path="GestionMagasin/Tests/GestionMagasin.Tests.csproj" />
+  </Folder>
+  <Project Path="GestionMagasin/GestionMagasin.csproj" />
+</Solution>
