@@ -8,6 +8,7 @@ public sealed class ReportsForm : Form
 {
     private readonly AuthenticatedUser _administrator;
     private readonly ReportingService _reports;
+    private readonly TimeZoneInfo _storeTimeZone;
     private readonly DateTimePicker _from = new();
     private readonly DateTimePicker _through = new();
     private readonly DataGridView _grid = new();
@@ -17,7 +18,9 @@ public sealed class ReportsForm : Form
     {
         AuthenticationService.RequireRole(administrator, UserRole.Administrateur);
         _administrator = administrator;
-        _reports = new ReportingService(new SqliteConnectionFactory(session.DatabasePath));
+        var factory = new SqliteConnectionFactory(session.DatabasePath);
+        _reports = new ReportingService(factory);
+        _storeTimeZone = new AdministrationService(factory).GetStoreSettings().TimeZone;
 
         Text = "Rapports et exports";
         StartPosition = FormStartPosition.CenterParent;
@@ -47,7 +50,7 @@ public sealed class ReportsForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var controls = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(0, 6, 0, 0), BackColor = CatalogPalette.Background };
-        var today = DateTime.Today;
+        var today = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, _storeTimeZone).DateTime.Date;
         foreach (var picker in new[] { _from, _through })
         {
             picker.Format = DateTimePickerFormat.Short;
@@ -120,7 +123,7 @@ public sealed class ReportsForm : Form
         {
             var from = DateOnly.FromDateTime(_from.Value.Date);
             var through = DateOnly.FromDateTime(_through.Value.Date);
-            var rows = _reports.GetProductPeriodReport(_administrator, from, through);
+            var rows = _reports.GetProductPeriodReport(_administrator, from, through, _storeTimeZone);
             _grid.DataSource = rows;
             var totalUnits = rows.Sum(row => row.UnitsSold);
             var totalXaf = rows.Sum(row => row.RevenueXaf);
@@ -136,7 +139,7 @@ public sealed class ReportsForm : Form
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            var count = _reports.ExportSalesCsv(_administrator, DateOnly.FromDateTime(_from.Value.Date), DateOnly.FromDateTime(_through.Value.Date), dialog.FileName);
+            var count = _reports.ExportSalesCsv(_administrator, DateOnly.FromDateTime(_from.Value.Date), DateOnly.FromDateTime(_through.Value.Date), dialog.FileName, _storeTimeZone);
             MessageBox.Show(this, $"Export terminé : {count} ligne(s) de vente.", "Export CSV", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex) { ShowError(ex); }

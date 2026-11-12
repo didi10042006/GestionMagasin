@@ -10,6 +10,7 @@ public partial class Form1 : Form
     private readonly DatabaseSession _session;
     private readonly AuthenticatedUser? _user;
     private readonly DashboardService _dashboard;
+    private readonly AdministrationService _administration;
     private readonly System.Windows.Forms.Timer _refreshTimer = new() { Interval = 5000 };
     private readonly Label _businessDate = new();
     private readonly Label _lastUpdated = new();
@@ -25,7 +26,9 @@ public partial class Form1 : Form
         InitializeComponent();
         _session = session;
         _user = user;
-        _dashboard = new DashboardService(new SqliteConnectionFactory(session.DatabasePath));
+        var factory = new SqliteConnectionFactory(session.DatabasePath);
+        _dashboard = new DashboardService(factory);
+        _administration = new AdministrationService(factory);
 
         Text = $"Gestion-Magasin — {session.ModeLabel}";
         ClientSize = new Size(1200, 760);
@@ -141,6 +144,10 @@ public partial class Form1 : Form
             reportsButton.Size = new Size(120, 38);
             reportsButton.Click += (_, _) => OpenReports();
             actions.Controls.Add(reportsButton);
+            var administrationButton = CatalogPalette.CreateButton("Administration", Color.FromArgb(75, 92, 116));
+            administrationButton.Size = new Size(155, 38);
+            administrationButton.Click += (_, _) => OpenAdministration();
+            actions.Controls.Add(administrationButton);
         }
         toolbar.Controls.Add(actions, 0, 0);
 
@@ -269,7 +276,7 @@ public partial class Form1 : Form
         if (IsDisposed) return;
         try
         {
-            var metrics = _dashboard.GetDailyMetrics(_user);
+            var metrics = _dashboard.GetDailyMetrics(_user, businessTimeZone: _administration.GetStoreSettings().TimeZone);
             var french = CultureInfo.GetCultureInfo("fr-FR");
             _businessDate.Text = $"Date métier : {metrics.BusinessDate.ToDateTime(TimeOnly.MinValue).ToString("dddd d MMMM yyyy", french)}";
             _salesAmount.Text = $"{metrics.ValidatedSalesAmountXaf.ToString("N0", french)} FCFA";
@@ -305,5 +312,13 @@ public partial class Form1 : Form
         if (_user?.Role != UserRole.Administrateur) return;
         using var reports = new ReportsForm(_session, _user);
         reports.ShowDialog(this);
+    }
+
+    private void OpenAdministration()
+    {
+        if (_user?.Role != UserRole.Administrateur) return;
+        using var administration = new AdministrationForm(_session, _user);
+        administration.ShowDialog(this);
+        RefreshDashboard();
     }
 }

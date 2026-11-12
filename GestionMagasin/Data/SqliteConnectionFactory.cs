@@ -5,11 +5,13 @@ namespace GestionMagasin.Data;
 public sealed class SqliteConnectionFactory
 {
     private readonly string _connectionString;
+    public string DatabasePath { get; }
 
     public SqliteConnectionFactory(string databasePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         var fullPath = Path.GetFullPath(databasePath);
+        DatabasePath = fullPath;
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         _connectionString = new SqliteConnectionStringBuilder
         {

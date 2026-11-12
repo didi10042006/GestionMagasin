@@ -15,17 +15,18 @@ public sealed record DailyDashboardMetrics(
 /// <summary>Reads a fresh database snapshot for the dashboard's current local business day.</summary>
 public sealed class DashboardService(SqliteConnectionFactory connectionFactory)
 {
-    public DailyDashboardMetrics GetDailyMetrics(AuthenticatedUser? user, DateTime? localNow = null)
+    public DailyDashboardMetrics GetDailyMetrics(AuthenticatedUser? user, DateTime? localNow = null, TimeZoneInfo? businessTimeZone = null)
     {
         if (user is not null && !Enum.IsDefined(user.Role))
             throw new ArgumentException("Le rôle de l'utilisateur est invalide.", nameof(user));
 
-        var businessNow = localNow ?? DateTime.Now;
+        var timeZone = businessTimeZone ?? TimeZoneInfo.Local;
+        var businessNow = localNow ?? TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, timeZone).DateTime;
         var businessDate = DateOnly.FromDateTime(businessNow);
-        var localStart = DateTime.SpecifyKind(businessDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Local);
-        var localEnd = localStart.AddDays(1);
-        var fromUtc = localStart.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-        var throughUtc = localEnd.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+        var localStart = DateTime.SpecifyKind(businessDate.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
+        var localEnd = DateTime.SpecifyKind(businessDate.AddDays(1).ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
+        var fromUtc = TimeZoneInfo.ConvertTimeToUtc(localStart, timeZone).ToString("O", CultureInfo.InvariantCulture);
+        var throughUtc = TimeZoneInfo.ConvertTimeToUtc(localEnd, timeZone).ToString("O", CultureInfo.InvariantCulture);
         var scopedUserId = user?.Role == UserRole.Vendeur ? user.Id : (int?)null;
 
         using var connection = connectionFactory.OpenConnection();

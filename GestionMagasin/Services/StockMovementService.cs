@@ -54,7 +54,7 @@ public sealed class StockMovementService(SqliteConnectionFactory connectionFacto
 
     public void RegisterInitialStock(AuthenticatedUser? actor, int productId, int quantity, string? reason = null)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         if (quantity <= 0) throw new ArgumentOutOfRangeException(nameof(quantity), "Le stock initial doit être strictement supérieur à zéro.");
 
         using var connection = connectionFactory.OpenConnection();
@@ -73,12 +73,14 @@ public sealed class StockMovementService(SqliteConnectionFactory connectionFacto
 
         var initialReason = string.IsNullOrWhiteSpace(reason) ? "Stock initial" : reason.Trim();
         InsertMovement(connection, transaction, productId, actor!.Id, quantity, "StockInitial", "INITIAL", initialReason);
+        AuditWriter.Record(connection, transaction, actor.Id, "StockInitial", "Produit", productId,
+            $"Stock initial enregistré : quantité={quantity}; motif={initialReason}.");
         transaction.Commit();
     }
 
     public void Restock(AuthenticatedUser? actor, int productId, int quantity, string reason)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         if (quantity <= 0) throw new ArgumentOutOfRangeException(nameof(quantity), "La quantité de réapprovisionnement doit être strictement supérieure à zéro.");
         reason = NormalizeReason(reason, "Le motif du réapprovisionnement est obligatoire.");
 
@@ -86,6 +88,8 @@ public sealed class StockMovementService(SqliteConnectionFactory connectionFacto
         using var transaction = connection.BeginTransaction();
         EnsureActiveProduct(connection, transaction, productId);
         InsertMovement(connection, transaction, productId, actor!.Id, quantity, "Reapprovisionnement", null, reason);
+        AuditWriter.Record(connection, transaction, actor.Id, "Reapprovisionnement", "Produit", productId,
+            $"Réapprovisionnement : quantité={quantity}; motif={reason}.");
         transaction.Commit();
     }
 
@@ -122,7 +126,7 @@ public sealed class StockMovementService(SqliteConnectionFactory connectionFacto
     public void RecordSaleCancellation(AuthenticatedUser? actor, SqliteConnection connection,
         SqliteTransaction transaction, int saleId, int productId, int quantity)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         ValidateTransaction(connection, transaction);
         if (quantity <= 0) throw new ArgumentOutOfRangeException(nameof(quantity), "La quantité annulée doit être strictement supérieure à zéro.");
 
@@ -142,7 +146,7 @@ public sealed class StockMovementService(SqliteConnectionFactory connectionFacto
 
     public InventoryCorrectionResult CorrectInventory(AuthenticatedUser? actor, int productId, int countedQuantity, string reason)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         if (countedQuantity < 0) throw new ArgumentOutOfRangeException(nameof(countedQuantity), "La quantité comptée ne peut pas être négative.");
         reason = NormalizeReason(reason, "Le motif de correction est obligatoire.");
 

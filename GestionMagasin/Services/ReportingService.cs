@@ -18,7 +18,7 @@ public sealed class ReportingService(SqliteConnectionFactory connectionFactory)
     public IReadOnlyList<ProductPeriodReportRow> GetProductPeriodReport(
         AuthenticatedUser? actor, DateOnly from, DateOnly throughInclusive, TimeZoneInfo? storeTimeZone = null)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         var (fromUtc, throughUtc) = GetUtcBounds(from, throughInclusive, storeTimeZone ?? TimeZoneInfo.Local);
         using var connection = connectionFactory.OpenConnection();
         using var command = connection.CreateCommand();
@@ -44,7 +44,7 @@ public sealed class ReportingService(SqliteConnectionFactory connectionFactory)
     public int ExportSalesCsv(AuthenticatedUser? actor, DateOnly from, DateOnly throughInclusive,
         string filePath, TimeZoneInfo? storeTimeZone = null)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         var (fromUtc, throughUtc) = GetUtcBounds(from, throughInclusive, storeTimeZone ?? TimeZoneInfo.Local);
         using var connection = connectionFactory.OpenConnection();
         using var command = connection.CreateCommand();
@@ -76,12 +76,14 @@ public sealed class ReportingService(SqliteConnectionFactory connectionFactory)
             }
         }
         WriteCsv(filePath, csv);
+        AuditWriter.Record(connection, null, actor!.Id, "ExportVentesCsv", "Export", null,
+            $"Export CSV des ventes : {count} ligne(s); fichier={Path.GetFileName(filePath)}.");
         return count;
     }
 
     public int ExportStockCsv(AuthenticatedUser? actor, string filePath)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         using var connection = connectionFactory.OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -110,6 +112,8 @@ public sealed class ReportingService(SqliteConnectionFactory connectionFactory)
             }
         }
         WriteCsv(filePath, csv);
+        AuditWriter.Record(connection, null, actor!.Id, "ExportStocksCsv", "Export", null,
+            $"Export CSV du stock : {count} référence(s); fichier={Path.GetFileName(filePath)}.");
         return count;
     }
 

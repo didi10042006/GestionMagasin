@@ -82,7 +82,7 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
     public SaleReceipt Checkout(AuthenticatedUser? actor, IEnumerable<CartLineRequest> cart,
         SalePaymentMethod paymentMethod, int amountPaidXaf, Guid validationToken, string? paymentDescription = null)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur, UserRole.Vendeur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur, UserRole.Vendeur);
         ArgumentNullException.ThrowIfNull(cart);
         if (!Enum.IsDefined(paymentMethod)) throw new ArgumentOutOfRangeException(nameof(paymentMethod));
         if (validationToken == Guid.Empty) throw new ArgumentException("Le jeton de validation est obligatoire.", nameof(validationToken));
@@ -198,6 +198,8 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
             insertLine.ExecuteNonQuery();
         }
 
+        AuditWriter.Record(connection, transaction, actor!.Id, "ValidationVente", "Vente", saleId,
+            $"Vente {number} validée : montant={total} XAF; lignes={snapshots.Count}.");
         transaction.Commit();
         return new SaleReceipt(saleId, number, soldAt, actor.FullName, total, amountPaidXaf, change,
             paymentMethod, paymentDescription, snapshots);
@@ -205,7 +207,7 @@ public sealed class SalesService(SqliteConnectionFactory connectionFactory)
 
     public void Cancel(AuthenticatedUser? actor, int saleId, string reason)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         if (saleId <= 0) throw new ArgumentOutOfRangeException(nameof(saleId));
         reason = NormalizeRequired(reason, "Le motif d'annulation est obligatoire.");
 

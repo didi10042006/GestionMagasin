@@ -97,11 +97,13 @@ public sealed class ProductService(SqliteConnectionFactory connectionFactory)
     public void Create(AuthenticatedUser? actor, string code, string name, string? description,
         int categoryId, int purchasePrice, int salePrice, int alertThreshold)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         Validate(code, name, categoryId, purchasePrice, salePrice, alertThreshold);
         using var connection = connectionFactory.OpenConnection();
-        EnsureActiveCategory(connection, categoryId);
+        using var transaction = connection.BeginTransaction();
+        EnsureActiveCategory(connection, categoryId, transaction);
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO Produit
                 (CategorieId, Code, Nom, Description, PrixAchatXaf, PrixVenteXaf,
@@ -116,6 +118,13 @@ public sealed class ProductService(SqliteConnectionFactory connectionFactory)
         try
         {
             command.ExecuteNonQuery();
+            using var identity = connection.CreateCommand();
+            identity.Transaction = transaction;
+            identity.CommandText = "SELECT last_insert_rowid();";
+            var productId = Convert.ToInt32(identity.ExecuteScalar());
+            AuditWriter.Record(connection, transaction, actor!.Id, "CreationProduit", "Produit", productId,
+                $"Produit créé : {code.Trim()} — {name.Trim()}; prix vente={salePrice} XAF.");
+            transaction.Commit();
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
@@ -126,7 +135,7 @@ public sealed class ProductService(SqliteConnectionFactory connectionFactory)
     public void Update(AuthenticatedUser? actor, int id, string name, string? description,
         int categoryId, int purchasePrice, int salePrice, int alertThreshold)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         Validate("Référence conservée", name, categoryId, purchasePrice, salePrice, alertThreshold);
         using var connection = connectionFactory.OpenConnection();
         using var transaction = connection.BeginTransaction();
@@ -158,20 +167,26 @@ public sealed class ProductService(SqliteConnectionFactory connectionFactory)
         AddProductParameters(command, name, description, categoryId, purchasePrice, salePrice, alertThreshold);
         command.Parameters.AddWithValue("$id", id);
         command.ExecuteNonQuery();
+        AuditWriter.Record(connection, transaction, actor!.Id, "ModificationProduit", "Produit", id,
+            $"Produit modifié : {name.Trim()}; prix vente={salePrice} XAF; seuil={alertThreshold}.");
         transaction.Commit();
     }
 
     public void Archive(AuthenticatedUser? actor, int id)
     {
-        AuthenticationService.RequireRole(actor, UserRole.Administrateur);
+        AuthenticationService.RequireActiveRole(connectionFactory, actor, UserRole.Administrateur);
         using var connection = connectionFactory.OpenConnection();
+        using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "UPDATE Produit SET Actif = 0 WHERE Id = $id AND Actif = 1;";
         command.Parameters.AddWithValue("$id", id);
         if (command.ExecuteNonQuery() == 0)
         {
             throw new InvalidOperationException("Ce produit est introuvable ou déjà archivé.");
         }
+        AuditWriter.Record(connection, transaction, actor!.Id, "ArchivageProduit", "Produit", id, "Produit archivé.");
+        transaction.Commit();
     }
 
     public static string AvailabilityLabel(Produit product)
