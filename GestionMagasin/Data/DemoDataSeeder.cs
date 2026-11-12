@@ -1,9 +1,14 @@
+using System.Security.Cryptography;
+using GestionMagasin.Services;
 using Microsoft.Data.Sqlite;
 
 namespace GestionMagasin.Data;
 
 public static class DemoDataSeeder
 {
+    private const string DemoCashierUsername = "vendeur-demo";
+    private const string DemoCashierFullName = "Vendeur de démonstration";
+
     private sealed record DemoProduct(string Code, string Name, string Category, int Price, int Stock, int Alert);
 
     private static readonly DemoProduct[] Products =
@@ -102,5 +107,49 @@ public static class DemoDataSeeder
         }
 
         transaction.Commit();
+    }
+
+    public static AuthenticatedUser EnsureDemoCashier(SqliteConnectionFactory factory)
+    {
+        using var connection = factory.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using var find = connection.CreateCommand();
+        find.Transaction = transaction;
+        find.CommandText = "SELECT Id, NomComplet, Role, Actif FROM Utilisateur WHERE NomUtilisateur = $username COLLATE NOCASE;";
+        find.Parameters.AddWithValue("$username", DemoCashierUsername);
+        using (var reader = find.ExecuteReader())
+        {
+            if (reader.Read())
+            {
+                var id = reader.GetInt32(0);
+                var fullName = reader.GetString(1);
+                var role = reader.GetString(2);
+                var active = reader.GetInt32(3) == 1;
+                if (!active || role != nameof(UserRole.Vendeur))
+                    throw new InvalidOperationException("Le compte interne de démonstration est désactivé ou invalide.");
+                transaction.Commit();
+                return new AuthenticatedUser(id, DemoCashierUsername, fullName, UserRole.Vendeur);
+            }
+        }
+
+        // The demo cashier is an internal session identity. Its unguessable password is
+        // discarded immediately; only a salted PBKDF2 hash is ever written to the database.
+        var oneTimePassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
+        var passwordHash = new PasswordHashingService().HashPassword(oneTimePassword);
+        using var add = connection.CreateCommand();
+        add.Transaction = transaction;
+        add.CommandText = """
+            INSERT INTO Utilisateur (NomUtilisateur, NomComplet, MotDePasseHash, Role, Actif, CreeLeUtc)
+            VALUES ($username, $fullName, $passwordHash, $role, 1, $createdAt);
+            SELECT last_insert_rowid();
+            """;
+        add.Parameters.AddWithValue("$username", DemoCashierUsername);
+        add.Parameters.AddWithValue("$fullName", DemoCashierFullName);
+        add.Parameters.AddWithValue("$passwordHash", passwordHash);
+        add.Parameters.AddWithValue("$role", nameof(UserRole.Vendeur));
+        add.Parameters.AddWithValue("$createdAt", DateTime.UtcNow.ToString("O"));
+        var cashierId = Convert.ToInt32(add.ExecuteScalar());
+        transaction.Commit();
+        return new AuthenticatedUser(cashierId, DemoCashierUsername, DemoCashierFullName, UserRole.Vendeur);
     }
 }

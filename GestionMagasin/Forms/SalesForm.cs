@@ -139,7 +139,7 @@ public sealed class SalesForm : Form
             _validationToken = null;
             UpdatePaymentSummary();
         };
-        _checkoutButton.Click += (_, _) => Checkout();
+        _checkoutButton.Click += CheckoutButtonClicked;
         _historySearch.TextChanged += (_, _) => LoadHistory();
         _historyFrom.ValueChanged += (_, _) => LoadHistory();
         _historyThrough.ValueChanged += (_, _) => LoadHistory();
@@ -520,8 +520,11 @@ public sealed class SalesForm : Form
         _changeLabel.ForeColor = paymentIsValid && change > 0
             ? CatalogPalette.AvailableText
             : paymentIsValid ? CatalogPalette.Text : CatalogPalette.OutOfStockText;
-        _checkoutButton.Enabled = _user is not null && _cart.Count > 0 && total > 0 && total <= int.MaxValue && paymentIsValid;
+        _checkoutButton.Enabled = _user is not null && _cart.Count > 0 && total > 0 && total <= int.MaxValue &&
+            _paymentMethod.SelectedItem is SalePaymentMethod;
     }
+
+    private void CheckoutButtonClicked(object? sender, EventArgs e) => Checkout();
 
     private void Checkout()
     {

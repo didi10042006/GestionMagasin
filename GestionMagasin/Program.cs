@@ -89,6 +89,7 @@ static class Program
         if (selectedMode == DatabaseMode.Demonstration)
         {
             DemoDataSeeder.SeedIfNeeded(connectionFactory);
+            currentUser = DemoDataSeeder.EnsureDemoCashier(connectionFactory);
         }
         else
         {

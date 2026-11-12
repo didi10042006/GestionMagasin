@@ -16,7 +16,7 @@ Le paquet est autonome x64 et inclut le runtime .NET nécessaire. Visual Studio 
 Au démarrage, choisissez **Base réelle** ou **Base de démonstration**. Ces modes sont isolés dans des fichiers distincts.
 
 - **Base réelle** : vide de produits fictifs. Lors de la première utilisation, créez un mot de passe pour le premier administrateur. Aucun compte ni mot de passe par défaut n'est fourni. Ce compte permet ensuite de créer les comptes administrateur et vendeur.
-- **Base de démonstration** : contient huit produits de référence et des stocks illustrant les statuts Disponible, Stock faible et En rupture. Elle sert à explorer l'interface sans modifier les données réelles.
+- **Base de démonstration** : contient huit produits de référence et des stocks illustrant les statuts Disponible, Stock faible et En rupture. Un caissier interne sans identifiant de connexion connu est créé avec un mot de passe aléatoire uniquement haché; cela permet d'essayer l'ajout au panier et les transactions de démonstration sans toucher aux données réelles.
 
 Ne stockez pas les bases dans le dossier d'installation. L'application les place sous le profil Windows de l'utilisateur :
 

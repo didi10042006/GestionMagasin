@@ -19,14 +19,16 @@ public sealed class SalesSplitContainerTests
         Directory.CreateDirectory(directory);
         var databasePath = Path.Combine(directory, "cart-test.db");
         DatabaseInitializer.Initialize(databasePath);
-        DemoDataSeeder.SeedIfNeeded(new SqliteConnectionFactory(databasePath));
+        var factory = new SqliteConnectionFactory(databasePath);
+        DemoDataSeeder.SeedIfNeeded(factory);
+        var demoCashier = DemoDataSeeder.EnsureDemoCashier(factory);
         Exception? failure = null;
         using var finished = new ManualResetEventSlim();
         var thread = new Thread(() =>
         {
             try
             {
-                using var form = new SalesForm(new DatabaseSession(DatabaseMode.Demonstration, databasePath), null)
+                using var form = new SalesForm(new DatabaseSession(DatabaseMode.Demonstration, databasePath), demoCashier)
                 {
                     ClientSize = new Size(940, 620),
                     ShowInTaskbar = false,
@@ -43,9 +45,13 @@ public sealed class SalesSplitContainerTests
                 var cart = (ICollection)ReadPrivateField(form, "_cart");
                 var cartGrid = (DataGridView)ReadPrivateField(form, "_cartGrid");
                 var totalLabel = (Label)ReadPrivateField(form, "_totalLabel");
+                var checkoutButton = (Button)ReadPrivateField(form, "_checkoutButton");
+                var changeLabel = (Label)ReadPrivateField(form, "_changeLabel");
                 Assert.Single((IEnumerable)cart);
                 Assert.Single(cartGrid.Rows.Cast<DataGridViewRow>().Where(row => !row.IsNewRow));
                 Assert.NotEqual("Total : 0 FCFA", totalLabel.Text);
+                Assert.True(checkoutButton.Enabled, "La validation reste cliquable afin d'afficher les erreurs métier de paiement.");
+                Assert.Contains("Manque", changeLabel.Text);
             }
             catch (Exception exception)
             {
